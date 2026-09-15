@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Click & Fill QR-Generator</title>
+    <!-- QR-Code Bibliothek -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- OCR Texterkennung (Tesseract.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #005f73;
+            --active-color: #ee9b00;
+            --bg: #f4f7f6;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 15px;
+            color: #333;
+        }
+
+        .header-title {
+            text-align: center;
+            color: var(--primary);
+            margin-bottom: 15px;
+        }
+
+        .main-layout {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Linke Spalte: Formular */
+        .form-section {
+            flex: 1;
+            min-width: 320px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        /* Rechte Spalte: Bildanzeige mit OCR-Overlay */
+        .image-section {
+            flex: 1.2;
+            min-width: 340px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Upload Button */
+        .upload-btn-wrapper {
+            width: 100%;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .upload-btn {
+            background: var(--primary);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-block;
+            font-weight: bold;
+        }
+
+        .upload-btn input[type="file"] {
+            display: none;
+        }
+
+        /* Status & Aktives Feld Anzeige */
+        .status-bar {
+            background: #e0f2f1;
+            color: #004d40;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 15px;
+            text-align: center;
+            border: 1px solid #b2dfdb;
+        }
+
+        /* Formularelemente */
+        .form-group {
+            margin-bottom: 12px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 5px;
+        }
+
+        input, textarea {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        /* Visuelle Hervorhebung des aktiven Feldes */
+        .form-control.active-field {
+            border-color: var(--active-color) !important;
+            background-color: #fffde7;
+            box-shadow: 0 0 5px rgba(238, 155, 0, 0.5);
+        }
+
+        .btn-clear {
+            background: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 0 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* Interaktiver Bildbereich */
+        #img-container {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #fafafa;
+        }
+
+        #preview-img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        #overlay-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Klicks gehen durch, außer auf die Boxen */
+        }
+
+        /* Klickbare Textboxen auf dem Bild */
+        .ocr-box {
+            position: absolute;
+            background: rgba(0, 150, 255, 0.15);
+            border: 1px solid rgba(0, 100, 255, 0.4);
+            border-radius: 3px;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: all 0.15s ease;
+        }
+
+        .ocr-box:hover {
+            background: rgba(238, 155, 0, 0.45);
+            border-color: var(--active-color);
+            transform: scale(1.03);
+            z-index: 10;
+        }
+
+        /* QR-Code Container */
+        #qrcode-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #qrcode {
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<h2 class="header-title">Foto-Click & Fill Überweisung</h2>
+
+<div class="main-layout">
+    <!-- Linke Spalte: Eingabefelder -->
+    <div class="form-section">
+        <div class="status-bar" id="active-indicator">
+            👉 Aktives Feld: <b>Empfänger Name</b>
+        </div>
+
+        <form id="transferForm" onsubmit="generateQRCode(event)">
+            <div class="form-group">
+                <label for="name">Empfänger Name:</label>
+                <div class="input-wrapper">
+                    <input type="text" id="name" class="form-control" placeholder="Tippe ins Bild..." onfocus="setActiveField('name')">
+                    <button type="button" class="btn-clear" onclick="clearField('name')">✕</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="iban">IBAN:</label>
+                <div class="input-wrapper">
+                    <input type="text" id="iban" class="form-control" placeholder="Tippe ins Bild..." onfocus="setActiveField('iban')">
+                    <button type="button" class="btn-clear" onclick="clearField('iban')">✕</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="bic">BIC (optional):</label>
+                <div class="input-wrapper">
+                    <input type="text" id="bic" class="form-control" placeholder="Tippe ins Bild..." onfocus="setActiveField('bic')">
+                    <button type="button" class="btn-clear" onclick="clearField('bic')">✕</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="amount">Betrag (€):</label>
+                <div class="input-wrapper">
+                    <input type="text" id="amount" class="form-control" placeholder="Tippe ins Bild..." onfocus="setActiveField('amount')">
+                    <button type="button" class="btn-clear" onclick="clearField('amount')">✕</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="purpose">Verwendungszweck:</label>
+                <div class="input-wrapper">
+                    <textarea id="purpose" class="form-control" rows="2" placeholder="Tippe ins Bild..." onfocus="setActiveField('purpose')"></textarea>
+                    <button type="button" class="btn-clear" onclick="clearField('purpose')">✕</button>
+                </div>
+            </div>
+        </form>
+
+        <div id="qrcode-container">
+            <div id="qrcode"></div>
+            <p style="font-size:12px; color:#666;" id="qr-hint">QR-Code wird automatisch erstellt.</p>
+        </div>
+    </div>
+
+    <!-- Rechte Spalte: Foto & Klickbarer Text -->
+    <div class="image-section">
+        <div class="upload-btn-wrapper">
+            <label class="upload-btn">
+                📷 Rechnung fotografieren / Hochladen
+                <input type="file" accept="image/*" capture="environment" onchange="loadImage(this)">
+            </label>
+        </div>
+
+        <div id="scan-status" style="margin-bottom: 10px; font-weight: bold; color: var(--primary);"></div>
+
+        <div id="img-container">
+            <img id="preview-img" src="" alt="Bitte Dokument hochladen" style="display:none;">
+            <div id="overlay-layer"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let activeFieldId = 'name';
+let recognizedWords = [];
+let qrCodeInstance = null;
+
+// Initialisierung bei Start
+window.onload = () => {
+    setActiveField('name');
+};
+
+// 1. Feld als "aktiv" markieren
+function setActiveField(id) {
+    activeFieldId = id;
+    document.querySelectorAll('.form-control').forEach(el => el.classList.remove('active-field'));
+    
+    const activeEl = document.getElementById(id);
+    if (activeEl) {
+        activeEl.classList.add('active-field');
+        const labelText = document.querySelector(`label[for="${id}"]`).innerText;
+        document.getElementById('active-indicator').innerHTML = `👉 Aktives Feld: <b>${labelText.replace(':', '')}</b> (Klicke auf den Text im Bild)`;
+    }
+}
+
+function clearField(id) {
+    document.getElementById(id).value = '';
+    generateQRCode();
+}
+
+// 2. Bild laden & Texterkennung (OCR)
+function loadImage(input) {
+    if (!input.files || !input.files[0]) return;
+    
+    const file = input.files[0];
+    const img = document.getElementById('preview-img');
+    const statusDiv = document.getElementById('scan-status');
+
+    img.src = URL.createObjectURL(file);
+    img.style.display = 'block';
+    
+    statusDiv.innerText = "Lese Text aus dem Bild... ⏳";
+
+    img.onload = async () => {
+        try {
+            // OCR mit Tesseract ausführen
+            const result = await Tesseract.recognize(file, 'deu');
+            recognizedWords = result.data.words; // Wörter mit Koordinaten
+            
+            statusDiv.innerText = "Fertig! Klicke jetzt auf Wörter im Bild 🎯";
+            renderTextOverlays();
+        } catch (err) {
+            console.error(err);
+            statusDiv.innerText = "Fehler bei der Texterkennung.";
+        }
+    };
+}
+
+// 3. Klickbare Kästchen exakt über die Wörter auf dem Bild legen
+function renderTextOverlays() {
+    const img = document.getElementById('preview-img');
+    const overlay = document.getElementById('overlay-layer');
+    overlay.innerHTML = '';
+
+    if (!recognizedWords || recognizedWords.length === 0) return;
+
+    // Skalierungsfaktor berechnen (falls das Bild kleiner angezeigt wird als das Original)
+    const scaleX = img.clientWidth / img.naturalWidth;
+    const scaleY = img.clientHeight / img.naturalHeight;
+
+    recognizedWords.forEach(word => {
+        const text = word.text.trim();
+        if (text.length === 0) return;
+
+        const box = word.bbox;
+        const div = document.createElement('div');
+        div.className = 'ocr-box';
+        
+        // Positionieren
+        div.style.left = (box.x0 * scaleX) + 'px';
+        div.style.top = (box.y0 * scaleY) + 'px';
+        div.style.width = ((box.x1 - box.x0) * scaleX) + 'px';
+        div.style.height = ((box.y1 - box.y0) * scaleY) + 'px';
+        div.title = text; // Tooltip
+
+        // Klick-Event: Text in das aktive Feld einfügen
+        div.onclick = (e) => {
+            e.stopPropagation();
+            insertTextToActiveField(text);
+        };
+
+        overlay.appendChild(div);
+    });
+}
+
+// Beim Ändern der Fenstergröße die Boxen neu berechnen
+window.addEventListener('resize', renderTextOverlays);
+
+// 4. Klick-Wert ins Feld schreiben
+function insertTextToActiveField(text) {
+    if (!activeFieldId) return;
+
+    const input = document.getElementById(activeFieldId);
+    let cleanText = text;
+
+    // Spezielle Bereinigungen je nach Feld
+    if (activeFieldId === 'iban') {
+        cleanText = cleanText.replace(/\s+/g, '').toUpperCase();
+    } else if (activeFieldId === 'amount') {
+        // Komma in Punkt umwandeln, nur Zahlen/Kommas erlauben
+        cleanText = cleanText.replace(',', '.').replace(/[^0-9.]/g, '');
+    }
+
+    // Wenn im Feld schon etwas steht, Text mit Leerzeichen anfügen
+    if (input.value.length > 0) {
+        // Bei IBAN ohne Leerzeichen anfügen
+        if (activeFieldId === 'iban') {
+            input.value += cleanText;
+        } else {
+            input.value += ' ' + cleanText;
+        }
+    } else {
+        input.value = cleanText;
+    }
+
+    // QR Code sofort aktualisieren
+    generateQRCode();
+}
+
+// 5. QR-Code (GiroCode EPC) generieren
+function generateQRCode(event) {
+    if (event) event.preventDefault();
+
+    const name = document.getElementById('name').value.trim();
+    const iban = document.getElementById('iban').value.replace(/\s+/g, '').toUpperCase();
+    const bic = document.getElementById('bic').value.replace(/\s+/g, '').toUpperCase();
+    
+    let amountVal = document.getElementById('amount').value.replace(',', '.');
+    const amount = amountVal && !isNaN(parseFloat(amountVal)) ? parseFloat(amountVal).toFixed(2) : '0.00';
+    
+    const purpose = document.getElementById('purpose').value.trim();
+
+    if (!name || !iban) {
+        document.getElementById('qr-hint').innerText = "Bitte mindestens Empfänger und IBAN befüllen.";
+        return;
+    }
+
+    // EPC Standard String
+    const epcData = [
+        'BCD',
+        '002',
+        '1',
+        'SCT',
+        bic,
+        name,
+        iban,
+        'EUR' + amount,
+        '',
+        '',
+        purpose
+    ].join('\n');
+
+    const qrContainer = document.getElementById('qrcode');
+    qrContainer.innerHTML = '';
+
+    qrCodeInstance = new QRCode(qrContainer, {
+        text: epcData,
+        width: 180,
+        height: 180,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+    });
+
+    document.getElementById('qr-hint').innerText = "Bereit! Scanne den QR-Code mit deiner Banking-App.";
+}
+</script>
+
+</body>
+</html>
